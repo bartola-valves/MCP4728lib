@@ -44,6 +44,11 @@ pico_set_program_version(MCP4728lib "0.1")
 pico_enable_stdio_uart(MCP4728lib 1)
 pico_enable_stdio_usb(MCP4728lib 0)
 
+# UART changed to pins 16 and 17
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+	PICO_DEFAULT_UART_TX_PIN=16
+	PICO_DEFAULT_UART_RX_PIN=17
+	)
 # Add the standard library to the build
 target_link_libraries(MCP4728lib
         pico_stdlib

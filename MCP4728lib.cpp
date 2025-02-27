@@ -1,4 +1,9 @@
 // MCP4728lib.cpp
+
+/*
+ * Design specification included in the DESIGN.md file
+
+ */
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
@@ -6,7 +11,7 @@
 #define I2C_PORT i2c0
 #define I2C_SDA_PIN 4   // GPIO4 (pin 6)
 #define I2C_SCL_PIN 5   // GPIO5 (pin 7)
-#define I2C_FREQ 400000 // 400 kHz
+#define I2C_FREQ 100000 // 100 kHz
 
 // additional connections of the MCP4728
 // VDD to 5V
@@ -122,8 +127,17 @@ bool mcp4728_set_all_channels(uint16_t values[4], mcp4728_vref_t vref, mcp4728_g
         buffer[i * 2 + 2] = values[i] & 0xFF;
     }
 
+    // Debug: Print buffer contents
+    printf("I2C buffer: ");
+    for (int i = 0; i < 9; i++)
+    {
+        printf("0x%02X ", buffer[i]);
+    }
+    printf("\n");
+
     // Send the data to the DAC
     int result = i2c_write_blocking(I2C_PORT, MCP4728_ADDR, buffer, 9, false);
+    printf("I2C write result: %d (expected 9)\n", result);
 
     return (result == 9);
 }
@@ -154,6 +168,36 @@ void mcp4728_trigger_ldac()
     gpio_put(LDAC_PIN, 1); // Return LDAC high
 }
 
+// Add this function to your code. TEsting the I2C bus to find the MCP4728
+void i2c_scan()
+{
+    printf("\nI2C Bus Scan\n");
+    printf("   0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F\n");
+
+    for (int addr_prefix = 0; addr_prefix < 8; addr_prefix++)
+    {
+        printf("%d0:", addr_prefix);
+        for (int addr_suffix = 0; addr_suffix < 16; addr_suffix++)
+        {
+            int addr = (addr_prefix << 4) | addr_suffix;
+
+            // Skip reserved addresses
+            if ((addr >= 0x00 && addr <= 0x07) || addr >= 0x78)
+            {
+                printf("   ");
+                continue;
+            }
+
+            // Try to detect device
+            uint8_t rxdata;
+            int ret = i2c_read_blocking(I2C_PORT, addr, &rxdata, 1, false);
+
+            printf(ret >= 0 ? " %02X" : " --", addr);
+        }
+        printf("\n");
+    }
+}
+
 int main()
 {
     stdio_init_all();
@@ -165,7 +209,8 @@ int main()
 
     // Initialize the I2C for the DAC
     mcp4728_init();
-
+    i2c_scan();
+    printf("Scan complete, continuing with DAC test\n");
     // Loop forever
     while (true)
     {
