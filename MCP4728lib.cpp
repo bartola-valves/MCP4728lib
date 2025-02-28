@@ -201,60 +201,82 @@ void i2c_scan()
 int main()
 {
     stdio_init_all();
-
-    // Wait for a moment so we can see the serial output
     busy_wait_ms(2000);
 
-    printf("MCP4728 DAC Test with LDAC control\n");
+    printf("MCP4728 DAC Test\n");
 
-    // Initialize the I2C for the DAC
-    mcp4728_init();
+    // Initialize I2C
+    i2c_init(I2C_PORT, I2C_FREQ);
+    gpio_set_function(I2C_SDA_PIN, GPIO_FUNC_I2C);
+    gpio_set_function(I2C_SCL_PIN, GPIO_FUNC_I2C);
+    gpio_pull_up(I2C_SDA_PIN);
+    gpio_pull_up(I2C_SCL_PIN);
+
+    // Initialize LDAC pin
+    gpio_init(LDAC_PIN);
+    gpio_set_dir(LDAC_PIN, GPIO_OUT);
+    gpio_put(LDAC_PIN, 1);
+
+    // Initialize RDY pin
+    gpio_init(RDY_PIN);
+    gpio_set_dir(RDY_PIN, GPIO_IN);
+    gpio_pull_up(RDY_PIN);
+
+    // First run a scan to verify the device is present
     i2c_scan();
-    printf("Scan complete, continuing with DAC test\n");
-    // Loop forever
+
+    // Now test writing to the DAC
+    printf("\nTesting DAC operations\n");
+
+    // Test 1: Set Channel A to 1V (using 5V reference)
+    uint16_t value_a = mcp4728_voltage_to_value(1.0, 5.0, GAIN_1X);
+    printf("Setting Channel A to 1.0V (DAC value: %u)\n", value_a);
+    if (mcp4728_set_channel(CHANNEL_A, value_a, VREF_VDD, GAIN_1X))
+    {
+        printf("Successfully set Channel A\n");
+    }
+    else
+    {
+        printf("Failed to set Channel A\n");
+    }
+    busy_wait_ms(2000);
+
+    // Test 2: Set all channels to different voltages
+    printf("\nSetting all channels to different voltages\n");
+    uint16_t values[4];
+    values[0] = mcp4728_voltage_to_value(0.5, 5.0, GAIN_1X); // 0.5V
+    values[1] = mcp4728_voltage_to_value(1.0, 5.0, GAIN_1X); // 1.0V
+    values[2] = mcp4728_voltage_to_value(2.5, 5.0, GAIN_1X); // 2.5V
+    values[3] = mcp4728_voltage_to_value(4.0, 5.0, GAIN_1X); // 4.0V
+
+    printf("Channel values: %u, %u, %u, %u\n",
+           values[0], values[1], values[2], values[3]);
+
+    if (mcp4728_set_all_channels(values, VREF_VDD, GAIN_1X))
+    {
+        printf("Successfully set all channels\n");
+    }
+    else
+    {
+        printf("Failed to set all channels\n");
+    }
+
+    busy_wait_ms(5000);
+
+    // Test 3: Create a simple voltage ramp on Channel A
+    printf("\nCreating voltage ramp on Channel A\n");
+    for (float v = 0.0; v <= 5.0; v += 0.5)
+    {
+        uint16_t val = mcp4728_voltage_to_value(v, 5.0, GAIN_1X);
+        printf("Setting to %.1fV (value: %u)\n", v, val);
+        mcp4728_set_channel(CHANNEL_A, val, VREF_VDD, GAIN_1X);
+        busy_wait_ms(500);
+    }
+
+    printf("\nTests completed\n");
+
     while (true)
     {
-        // Set up values for all channels but don't update outputs yet
-        uint16_t all_values[4];
-        all_values[0] = mcp4728_voltage_to_value(0.5, 5.0, GAIN_1X); // 0.5V on Channel A
-        all_values[1] = mcp4728_voltage_to_value(1.0, 5.0, GAIN_1X); // 1.0V on Channel B
-        all_values[2] = mcp4728_voltage_to_value(1.5, 5.0, GAIN_1X); // 1.5V on Channel C
-        all_values[3] = mcp4728_voltage_to_value(2.0, 5.0, GAIN_1X); // 2.0V on Channel D
-
-        // Write values to DAC (but outputs won't change yet due to LDAC)
-        if (mcp4728_set_all_channels(all_values, VREF_VDD, GAIN_1X))
-        {
-            printf("Values loaded into DAC registers\n");
-
-            // Wait a moment for demonstration
-            busy_wait_ms(1000);
-
-            // Now trigger LDAC to update all outputs simultaneously
-            mcp4728_trigger_ldac();
-            printf("All outputs updated simultaneously\n");
-        }
-        else
-        {
-            printf("Failed to set channels\n");
-        }
-
-        // Wait before next update
-        busy_wait_ms(5000);
-
-        // Now set different values
-        all_values[0] = mcp4728_voltage_to_value(2.0, 5.0, GAIN_1X);
-        all_values[1] = mcp4728_voltage_to_value(1.5, 5.0, GAIN_1X);
-        all_values[2] = mcp4728_voltage_to_value(1.0, 5.0, GAIN_1X);
-        all_values[3] = mcp4728_voltage_to_value(0.5, 5.0, GAIN_1X);
-
-        if (mcp4728_set_all_channels(all_values, VREF_VDD, GAIN_1X))
-        {
-            printf("New values loaded into DAC registers\n");
-            busy_wait_ms(1000);
-            mcp4728_trigger_ldac();
-            printf("All outputs updated simultaneously\n");
-        }
-
-        busy_wait_ms(5000);
+        busy_wait_ms(10000);
     }
 }
