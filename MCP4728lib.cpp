@@ -7,7 +7,6 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
-#include <math.h> // Added for round() function
 
 #define I2C_PORT i2c0
 #define I2C_SDA_PIN 4   // GPIO4 (pin 6)
@@ -152,9 +151,7 @@ uint16_t mcp4728_voltage_to_value(float voltage, float vref, mcp4728_gain_t gain
 
     // Calculate the DAC value (0-4095) from the voltage
     float normalized_value = voltage / max_voltage;
-
-    // Use round() instead of truncating for better precision
-    uint16_t dac_value = (uint16_t)round(normalized_value * 4095.0);
+    uint16_t dac_value = (uint16_t)(normalized_value * 4095.0);
 
     // Clamp value to valid range
     if (dac_value > 4095)
@@ -204,95 +201,18 @@ void i2c_scan()
 int main()
 {
     stdio_init_all();
-    busy_wait_ms(2000);
 
-    printf("MCP4728 DAC Test - Calibration Mode with Op-Amp Compensation\n");
+    printf("I2C Scanner\n");
 
-    // Initialize I2C
     i2c_init(I2C_PORT, I2C_FREQ);
     gpio_set_function(I2C_SDA_PIN, GPIO_FUNC_I2C);
     gpio_set_function(I2C_SCL_PIN, GPIO_FUNC_I2C);
     gpio_pull_up(I2C_SDA_PIN);
     gpio_pull_up(I2C_SCL_PIN);
 
-    // Initialize LDAC pin
-    gpio_init(LDAC_PIN);
-    gpio_set_dir(LDAC_PIN, GPIO_OUT);
-    gpio_put(LDAC_PIN, 1);
-
-    // Initialize RDY pin
-    gpio_init(RDY_PIN);
-    gpio_set_dir(RDY_PIN, GPIO_IN);
-    gpio_pull_up(RDY_PIN);
-
-    // First run a scan to verify the device is present
-    i2c_scan();
-
-    printf("\nStarting calibration pattern using internal reference with 1x gain\n");
-    printf("Max DAC voltage: 2.048V (being scaled by op-amp gain of 2.4414 to 5V output)\n");
-
-    // Op-amp gain factor
-    const float OP_AMP_GAIN = 2.4414f; // 5V / 2.048V
-
-    // We'll use these arrays to store our alternating values
-    uint16_t values_a[2], values_b[2], values_c[2];
-    uint16_t value_d;
-
-    // Calculate DAC values, compensating for op-amp gain
-    // For each target voltage, calculate DAC voltage = target voltage / op-amp gain
-
-    // OUTA: 0V and 5V after op-amp
-    values_a[0] = mcp4728_voltage_to_value(0.0 / OP_AMP_GAIN, 2.048, GAIN_1X); // 0V
-    values_a[1] = mcp4728_voltage_to_value(5.0 / OP_AMP_GAIN, 2.048, GAIN_1X); // 2.048V
-
-    // OUTB: 1V and 3V after op-amp
-    values_b[0] = mcp4728_voltage_to_value(1.0 / OP_AMP_GAIN, 2.048, GAIN_1X); // ~0.41V
-    values_b[1] = mcp4728_voltage_to_value(3.0 / OP_AMP_GAIN, 2.048, GAIN_1X); // ~1.23V
-
-    // OUTC: 2V and 4V after op-amp
-    values_c[0] = mcp4728_voltage_to_value(2.0 / OP_AMP_GAIN, 2.048, GAIN_1X); // ~0.82V
-    values_c[1] = mcp4728_voltage_to_value(4.0 / OP_AMP_GAIN, 2.048, GAIN_1X); // ~1.64V
-
-    // OUTD: fixed at 5V after op-amp
-    value_d = mcp4728_voltage_to_value(5.0 / OP_AMP_GAIN, 2.048, GAIN_1X); // 2.048V
-
-    // Print the calculated values and corresponding DAC voltages
-    printf("OUTA values: %u (0V -> 0V), %u (2.048V -> 5V)\n", values_a[0], values_a[1]);
-    printf("OUTB values: %u (0.41V -> 1V), %u (1.23V -> 3V)\n", values_b[0], values_b[1]);
-    printf("OUTC values: %u (0.82V -> 2V), %u (1.64V -> 4V)\n", values_c[0], values_c[1]);
-    printf("OUTD value: %u (2.048V -> 5V)\n", value_d);
-
-    printf("\nStarting alternating pattern (3 sec interval)\n");
-
-    // Set OUTD to fixed 5V
-    mcp4728_set_channel(CHANNEL_D, value_d, VREF_INT, GAIN_1X);
-
-    // Calibration loop
-    bool toggle = false;
     while (true)
     {
-        // Update values based on toggle state
-        uint16_t all_values[4];
-        all_values[0] = values_a[toggle ? 1 : 0]; // OUTA: 0V or 5V
-        all_values[1] = values_b[toggle ? 1 : 0]; // OUTB: 1V or 3V
-        all_values[2] = values_c[toggle ? 1 : 0]; // OUTC: 2V or 4V
-        all_values[3] = value_d;                  // OUTD: fixed 5V
-
-        // Set all channels at once
-        if (mcp4728_set_all_channels(all_values, VREF_INT, GAIN_1X))
-        {
-            printf("Outputs set to: %s\n",
-                   toggle ? "OUTA=5V, OUTB=3V, OUTC=4V, OUTD=5V" : "OUTA=0V, OUTB=1V, OUTC=2V, OUTD=5V");
-        }
-        else
-        {
-            printf("Failed to set outputs\n");
-        }
-
-        // Wait 3 seconds before toggling
+        i2c_scan();
         busy_wait_ms(3000);
-
-        // Toggle for next iteration
-        toggle = !toggle;
     }
 }

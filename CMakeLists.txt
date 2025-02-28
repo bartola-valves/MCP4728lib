@@ -33,9 +33,15 @@ project(MCP4728lib C CXX ASM)
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
 
+
+
+
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(MCP4728lib MCP4728lib.cpp )
+add_executable(MCP4728lib MCP4728lib.cpp MCP4728.cpp)
+
+
+
 
 pico_set_program_name(MCP4728lib "MCP4728lib")
 pico_set_program_version(MCP4728lib "0.1")
@@ -49,15 +55,19 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 	PICO_DEFAULT_UART_TX_PIN=16
 	PICO_DEFAULT_UART_RX_PIN=17
 	)
-# Add the standard library to the build
+
+# Add the standard include files to the build
+target_include_directories(MCP4728lib PRIVATE
+${CMAKE_CURRENT_LIST_DIR}
+)
+
+
+    # Add the standard library to the build
 target_link_libraries(MCP4728lib
         pico_stdlib
         hardware_i2c)  # Add this line
 
-# Add the standard include files to the build
-target_include_directories(MCP4728lib PRIVATE
-        ${CMAKE_CURRENT_LIST_DIR}
-)
+
 
 pico_add_extra_outputs(MCP4728lib)
 
