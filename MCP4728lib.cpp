@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
+#include <math.h> // Added for round() function
 
 #define I2C_PORT i2c0
 #define I2C_SDA_PIN 4   // GPIO4 (pin 6)
@@ -151,7 +152,9 @@ uint16_t mcp4728_voltage_to_value(float voltage, float vref, mcp4728_gain_t gain
 
     // Calculate the DAC value (0-4095) from the voltage
     float normalized_value = voltage / max_voltage;
-    uint16_t dac_value = (uint16_t)(normalized_value * 4095.0);
+
+    // Use round() instead of truncating for better precision
+    uint16_t dac_value = (uint16_t)round(normalized_value * 4095.0);
 
     // Clamp value to valid range
     if (dac_value > 4095)
@@ -203,7 +206,7 @@ int main()
     stdio_init_all();
     busy_wait_ms(2000);
 
-    printf("MCP4728 DAC Test\n");
+    printf("MCP4728 DAC Test - Calibration Mode with Op-Amp Compensation\n");
 
     // Initialize I2C
     i2c_init(I2C_PORT, I2C_FREQ);
@@ -225,58 +228,71 @@ int main()
     // First run a scan to verify the device is present
     i2c_scan();
 
-    // Now test writing to the DAC
-    printf("\nTesting DAC operations\n");
+    printf("\nStarting calibration pattern using internal reference with 1x gain\n");
+    printf("Max DAC voltage: 2.048V (being scaled by op-amp gain of 2.4414 to 5V output)\n");
 
-    // Test 1: Set Channel A to 1V (using 5V reference)
-    uint16_t value_a = mcp4728_voltage_to_value(1.0, 5.0, GAIN_1X);
-    printf("Setting Channel A to 1.0V (DAC value: %u)\n", value_a);
-    if (mcp4728_set_channel(CHANNEL_A, value_a, VREF_VDD, GAIN_1X))
-    {
-        printf("Successfully set Channel A\n");
-    }
-    else
-    {
-        printf("Failed to set Channel A\n");
-    }
-    busy_wait_ms(2000);
+    // Op-amp gain factor
+    const float OP_AMP_GAIN = 2.4414f; // 5V / 2.048V
 
-    // Test 2: Set all channels to different voltages
-    printf("\nSetting all channels to different voltages\n");
-    uint16_t values[4];
-    values[0] = mcp4728_voltage_to_value(0.5, 5.0, GAIN_1X); // 0.5V
-    values[1] = mcp4728_voltage_to_value(1.0, 5.0, GAIN_1X); // 1.0V
-    values[2] = mcp4728_voltage_to_value(2.5, 5.0, GAIN_1X); // 2.5V
-    values[3] = mcp4728_voltage_to_value(4.0, 5.0, GAIN_1X); // 4.0V
+    // We'll use these arrays to store our alternating values
+    uint16_t values_a[2], values_b[2], values_c[2];
+    uint16_t value_d;
 
-    printf("Channel values: %u, %u, %u, %u\n",
-           values[0], values[1], values[2], values[3]);
+    // Calculate DAC values, compensating for op-amp gain
+    // For each target voltage, calculate DAC voltage = target voltage / op-amp gain
 
-    if (mcp4728_set_all_channels(values, VREF_VDD, GAIN_1X))
-    {
-        printf("Successfully set all channels\n");
-    }
-    else
-    {
-        printf("Failed to set all channels\n");
-    }
+    // OUTA: 0V and 5V after op-amp
+    values_a[0] = mcp4728_voltage_to_value(0.0 / OP_AMP_GAIN, 2.048, GAIN_1X); // 0V
+    values_a[1] = mcp4728_voltage_to_value(5.0 / OP_AMP_GAIN, 2.048, GAIN_1X); // 2.048V
 
-    busy_wait_ms(5000);
+    // OUTB: 1V and 3V after op-amp
+    values_b[0] = mcp4728_voltage_to_value(1.0 / OP_AMP_GAIN, 2.048, GAIN_1X); // ~0.41V
+    values_b[1] = mcp4728_voltage_to_value(3.0 / OP_AMP_GAIN, 2.048, GAIN_1X); // ~1.23V
 
-    // Test 3: Create a simple voltage ramp on Channel A
-    printf("\nCreating voltage ramp on Channel A\n");
-    for (float v = 0.0; v <= 5.0; v += 0.5)
-    {
-        uint16_t val = mcp4728_voltage_to_value(v, 5.0, GAIN_1X);
-        printf("Setting to %.1fV (value: %u)\n", v, val);
-        mcp4728_set_channel(CHANNEL_A, val, VREF_VDD, GAIN_1X);
-        busy_wait_ms(500);
-    }
+    // OUTC: 2V and 4V after op-amp
+    values_c[0] = mcp4728_voltage_to_value(2.0 / OP_AMP_GAIN, 2.048, GAIN_1X); // ~0.82V
+    values_c[1] = mcp4728_voltage_to_value(4.0 / OP_AMP_GAIN, 2.048, GAIN_1X); // ~1.64V
 
-    printf("\nTests completed\n");
+    // OUTD: fixed at 5V after op-amp
+    value_d = mcp4728_voltage_to_value(5.0 / OP_AMP_GAIN, 2.048, GAIN_1X); // 2.048V
 
+    // Print the calculated values and corresponding DAC voltages
+    printf("OUTA values: %u (0V -> 0V), %u (2.048V -> 5V)\n", values_a[0], values_a[1]);
+    printf("OUTB values: %u (0.41V -> 1V), %u (1.23V -> 3V)\n", values_b[0], values_b[1]);
+    printf("OUTC values: %u (0.82V -> 2V), %u (1.64V -> 4V)\n", values_c[0], values_c[1]);
+    printf("OUTD value: %u (2.048V -> 5V)\n", value_d);
+
+    printf("\nStarting alternating pattern (3 sec interval)\n");
+
+    // Set OUTD to fixed 5V
+    mcp4728_set_channel(CHANNEL_D, value_d, VREF_INT, GAIN_1X);
+
+    // Calibration loop
+    bool toggle = false;
     while (true)
     {
-        busy_wait_ms(10000);
+        // Update values based on toggle state
+        uint16_t all_values[4];
+        all_values[0] = values_a[toggle ? 1 : 0]; // OUTA: 0V or 5V
+        all_values[1] = values_b[toggle ? 1 : 0]; // OUTB: 1V or 3V
+        all_values[2] = values_c[toggle ? 1 : 0]; // OUTC: 2V or 4V
+        all_values[3] = value_d;                  // OUTD: fixed 5V
+
+        // Set all channels at once
+        if (mcp4728_set_all_channels(all_values, VREF_INT, GAIN_1X))
+        {
+            printf("Outputs set to: %s\n",
+                   toggle ? "OUTA=5V, OUTB=3V, OUTC=4V, OUTD=5V" : "OUTA=0V, OUTB=1V, OUTC=2V, OUTD=5V");
+        }
+        else
+        {
+            printf("Failed to set outputs\n");
+        }
+
+        // Wait 3 seconds before toggling
+        busy_wait_ms(3000);
+
+        // Toggle for next iteration
+        toggle = !toggle;
     }
 }
